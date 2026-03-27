@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createGroq } from '@ai-sdk/groq';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { generateObject } from 'ai';
 import { z } from 'zod';
 // import type { FileManifest } from '@/types/file-manifest'; // Type is used implicitly through manifest parameter
@@ -13,7 +12,7 @@ const aiGatewayBaseURL = 'https://ai-gateway.vercel.sh/v1';
 
 const groq = createGroq({
   apiKey: process.env.AI_GATEWAY_API_KEY ?? process.env.GROQ_API_KEY,
-  baseURL: isUsingAIGateway ? aiGatewayBaseURL : undefined,
+  baseURL: isUsingAIGateway ? aiGatewayBaseURL : process.env.GROQ_BASE_URL,
 });
 
 const anthropic = createAnthropic({
@@ -26,10 +25,6 @@ const openai = createOpenAI({
   baseURL: isUsingAIGateway ? aiGatewayBaseURL : process.env.OPENAI_BASE_URL,
 });
 
-const googleGenerativeAI = createGoogleGenerativeAI({
-  apiKey: process.env.AI_GATEWAY_API_KEY ?? process.env.GEMINI_API_KEY,
-  baseURL: isUsingAIGateway ? aiGatewayBaseURL : undefined,
-});
 
 // Schema for the AI's search plan - not file selection!
 const searchPlanSchema = z.object({
@@ -114,7 +109,12 @@ export async function POST(request: NextRequest) {
         aiModel = openai(model.replace('openai/', ''));
       }
     } else if (model.startsWith('google/')) {
-      aiModel = googleGenerativeAI(model.replace('google/', ''));
+      // Google models routed through LiteLLM via OpenAI-compat endpoint
+      const googleToLitellm: Record<string, string> = {
+        'google/gemini-3-pro-preview': 'gemini-3-pro',
+        'google/gemini-3-flash': 'gemini-3-flash',
+      };
+      aiModel = openai(googleToLitellm[model] || model.replace('google/', 'gemini/'));
     } else {
       // Default to groq if model format is unclear
       aiModel = groq(model);

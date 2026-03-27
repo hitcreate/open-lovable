@@ -2,16 +2,13 @@ import { appConfig } from '@/config/app.config';
 import { createGroq } from '@ai-sdk/groq';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
-
 type ProviderName = 'openai' | 'anthropic' | 'groq' | 'google';
 
 // Client function type returned by @ai-sdk providers
 export type ProviderClient =
   | ReturnType<typeof createOpenAI>
   | ReturnType<typeof createAnthropic>
-  | ReturnType<typeof createGroq>
-  | ReturnType<typeof createGoogleGenerativeAI>;
+  | ReturnType<typeof createGroq>;
 
 export interface ProviderResolution {
   client: ProviderClient;
@@ -66,7 +63,8 @@ function getOrCreateClient(provider: ProviderName, apiKey?: string, baseURL?: st
       client = createGroq({ apiKey: effective.apiKey || getEnvDefaults('groq').apiKey, baseURL: effective.baseURL ?? getEnvDefaults('groq').baseURL });
       break;
     case 'google':
-      client = createGoogleGenerativeAI({ apiKey: effective.apiKey || getEnvDefaults('google').apiKey, baseURL: effective.baseURL ?? getEnvDefaults('google').baseURL });
+      // Google models routed through OpenAI client via LiteLLM (no Google-native passthrough)
+      client = createOpenAI({ apiKey: effective.apiKey || getEnvDefaults('openai').apiKey, baseURL: effective.baseURL ?? getEnvDefaults('openai').baseURL });
       break;
     default:
       client = createGroq({ apiKey: effective.apiKey || getEnvDefaults('groq').apiKey, baseURL: effective.baseURL ?? getEnvDefaults('groq').baseURL });
@@ -107,8 +105,13 @@ export function getProviderForModel(modelId: string): ProviderResolution {
   }
 
   if (isGoogle) {
-    const client = getOrCreateClient('google');
-    return { client, actualModel: modelId.replace('google/', '') };
+    // Google models routed through OpenAI client via LiteLLM
+    const googleToLitellm: Record<string, string> = {
+      'google/gemini-3-pro-preview': 'gemini-3-pro',
+      'google/gemini-3-flash': 'gemini-3-flash',
+    };
+    const client = getOrCreateClient('openai');
+    return { client, actualModel: googleToLitellm[modelId] || modelId.replace('google/', 'gemini/') };
   }
 
   // Default: use Groq with modelId as-is
